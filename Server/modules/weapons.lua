@@ -1,0 +1,1 @@
+print('Module d\'armes chargé côté serveur.')
