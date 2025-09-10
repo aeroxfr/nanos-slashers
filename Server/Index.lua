@@ -38,22 +38,22 @@ function ExitSpectatorMode(player)
     Events.CallRemote('SetSpectator', player, false)
 end
 
-function AssignRoles()
-    gameTime = 60
-    gameState = 'playing'
-
-    local playerList = Player.GetAll()
-    if #playerList < 2 then
+function ResetGame(force)
+    if #Player.GetAll() < 2 and not force then
         print('Pas assez de joueurs pour commencer.')
         return
     end
 
+    gameState = 'playing'
+
+    -- Nettoyer les joueurs invalides
     for p, _ in pairs(players) do
         if not p:IsValid() then
             players[p] = nil
         end
     end
 
+    -- Sortir tous les joueurs du mode spectateur
     for p, _ in pairs(spectators) do
         if p:IsValid() then
             ExitSpectatorMode(p)
@@ -61,107 +61,48 @@ function AssignRoles()
     end
     spectators = {}
 
-    playerList = Player.GetAll()
-    if #playerList < 2 then
+    -- Assigner les rôles
+    AssignRoles(force)
+
+    -- Reset game time
+    gameTime = 60
+
+    -- Démarrer le timer de jeu
+    StartGame()
+
+    print('Partie commencée.')
+end
+
+
+function AssignRoles(force)
+    local playerList = Player.GetAll()
+    if #playerList < 2 and not force then
         return
     end
 
+    -- Mélanger la liste des joueurs
     for i = #playerList, 2, -1 do
         local j = math.random(i)
         playerList[i], playerList[j] = playerList[j], playerList[i]
     end
 
+    -- Assigner le rôle de Slasher au premier joueur de la liste mélangée 
     players[playerList[1]] = ROLE_SLASHER
     Chat.SendMessage(playerList[1], 'Vous êtes le Slasher ! Tuez les survivants.')
     Events.CallRemote('SetRole', playerList[1], ROLE_SLASHER)
 
+    -- Assigner le rôle de Survivant aux autres joueurs
     for i = 2, #playerList do
         players[playerList[i]] = ROLE_SURVIVOR
         Chat.SendMessage(playerList[i], 'Vous êtes un Survivant ! Cachez-vous du Slasher.')
         Events.CallRemote('SetRole', playerList[i], ROLE_SURVIVOR)
     end
 
-    print('Partie commencée.')
+    return true
+end
 
-    for p, _ in pairs(players) do
-        Events.CallRemote('UpdateTime', p, gameTime)
-    end
-
-    gameTimer = Timer.SetInterval(function()
-        gameTime = gameTime - 1
-        for p, _ in pairs(players) do
-            Events.CallRemote('UpdateTime', p, gameTime)
-        end
-        if gameTime <= 0 then
-            gameState = 'ended'
-
-            -- Compter les survivants encore en vie
-            local survivorsAlive = 0
-            for p, role in pairs(players) do
-                if p:IsValid() and role == ROLE_SURVIVOR and spectators[p] == nil then
-                    survivorsAlive = survivorsAlive + 1
-                end
-            end
-
-            if survivorsAlive > 0 then
-                -- Victoire des survivants
-                for p, role in pairs(players) do
-                    if p:IsValid() then
-                        Events.CallRemote('ClearRole', p)
-                        if role == ROLE_SURVIVOR then
-                            Chat.SendMessage(p, 'Victoire ! Temps écoulé, vous avez survécu !')
-                        else
-                            Chat.SendMessage(p, 'Défaite ! Les survivants ont gagné.')
-                        end
-                    end
-                end
-            else
-                -- Victoire du Slasher (tous les survivants morts)
-                for p, role in pairs(players) do
-                    if p:IsValid() then
-                        Events.CallRemote('ClearRole', p)
-                        if role == ROLE_SLASHER then
-                            Chat.SendMessage(p, 'Victoire ! Tous les survivants sont morts.')
-                        else
-                            Chat.SendMessage(p, 'Défaite ! Le Slasher a gagné.')
-                        end
-                    end
-                end
-            end
-
-            Timer.ClearInterval(gameTimer)
-            gameTimer = nil
-
-            -- Nettoyer les personnages et spectateurs
-            for p, role in pairs(players) do
-                if p:IsValid() then
-                    ExitSpectatorMode(p)
-                    local char = p:GetControlledCharacter()
-                    if char then
-                        char:Destroy()
-                    end
-                end
-            end
-
-            -- Redémarrage automatique
-            Timer.SetTimeout(function()
-                local currentPlayers = Player.GetAll()
-                if #currentPlayers >= 2 then
-                    spectators = {}
-                    AssignRoles()
-                else
-                    gameState = 'waiting'
-                    spectators = {}
-                    for p, role in pairs(players) do
-                        if p:IsValid() then
-                            Chat.SendMessage(p, 'Pas assez de joueurs pour relancer.')
-                        end
-                    end
-                end
-            end, restartDelay * 1000)
-        end
-    end, 1000)
-
+function StartGame()
+    -- Spawn les joueurs
     for player, role in pairs(players) do
         if player:IsValid() then
             local spawn = role == ROLE_SLASHER and slasherSpawns[math.random(#slasherSpawns)] or survivorSpawns[math.random(#survivorSpawns)]
@@ -178,13 +119,109 @@ function AssignRoles()
             end
         end
     end
+    
+    -- Informer tous les joueurs du temps restant
+    for p, _ in pairs(players) do
+        Events.CallRemote('UpdateTime', p, gameTime)
+    end
+
+    gameTimer = Timer.SetInterval(function()
+        gameTime = gameTime - 1
+        for p, _ in pairs(players) do
+            Events.CallRemote('UpdateTime', p, gameTime)
+        end
+        if gameTime <= 0 then
+            EndGame()
+        end
+    end, 1000)
+end
+
+function EndGame()
+    gameState = 'ended'
+
+    if gameTimer then
+        Timer.ClearInterval(gameTimer)
+        gameTimer = nil
+        for p, _ in pairs(players) do
+            if p:IsValid() then
+                Events.CallRemote('UpdateTime', p, 0)
+            end
+        end
+    end
+
+    -- Compter les survivants encore en vie
+    local survivorsAlive = 0
+    for p, role in pairs(players) do
+        if p:IsValid() and role == ROLE_SURVIVOR and spectators[p] == nil then
+            survivorsAlive = survivorsAlive + 1
+        end
+    end
+
+    -- Si le temps est écoulé et qu'il reste des survivants, ils gagnent
+    if survivorsAlive > 0 then
+        -- Victoire des survivants
+        for p, role in pairs(players) do
+            if p:IsValid() then
+                Events.CallRemote('ClearRole', p)
+                if role == ROLE_SURVIVOR then
+                    Chat.SendMessage(p, 'Victoire ! Temps écoulé, vous avez survécu !')
+                else
+                    Chat.SendMessage(p, 'Défaite ! Les survivants ont gagné.')
+                end
+            end
+        end
+    else
+        -- Victoire du Slasher (tous les survivants morts)
+        for p, role in pairs(players) do
+            if p:IsValid() then
+                Events.CallRemote('ClearRole', p)
+                if role == ROLE_SLASHER then
+                    Chat.SendMessage(p, 'Victoire ! Tous les survivants sont morts.')
+                else
+                    Chat.SendMessage(p, 'Défaite ! Le Slasher a gagné.')
+                end
+            end
+        end
+    end
+
+    -- Nettoyer les personnages et spectateurs
+    for p, role in pairs(players) do
+        if p:IsValid() then
+            ExitSpectatorMode(p)
+            local char = p:GetControlledCharacter()
+            if char then
+                char:Destroy()
+            end
+        end
+    end
+
+    -- Redémarrage automatique
+    Timer.SetTimeout(function()
+        local currentPlayers = Player.GetAll()
+        if #currentPlayers >= 2 then
+            spectators = {}
+            ResetGame()
+        else
+            gameState = 'waiting'
+            spectators = {}
+            for p, role in pairs(players) do
+                if p:IsValid() then
+                    Chat.SendMessage(p, 'Pas assez de joueurs pour relancer.')
+                end
+            end
+        end
+    end, restartDelay * 1000)
+end
+
+function CheckRole(player)
+    return players[player]
 end
 
 Player.Subscribe('Spawn', function(player)
     if gameState == 'waiting' then
         Chat.SendMessage(player, 'Bienvenue dans Slasher ! Attendez que la partie commence.')
         if #Player.GetAll() >= 2 then
-            AssignRoles()
+            ResetGame()
         end
     elseif gameState == 'playing' then
         Chat.SendMessage(player, 'La partie est en cours. Vous êtes spectateur.')
@@ -192,6 +229,69 @@ Player.Subscribe('Spawn', function(player)
     elseif gameState == 'ended' then
         Chat.SendMessage(player, 'La partie est terminée. Attendez le redémarrage.')
         EnterSpectatorMode(player)
+    end
+end)
+
+Player.Subscribe('Destroy', function(player)
+    if gameState == 'playing' and players[player] then
+        if players[player] == ROLE_SURVIVOR then
+            local survivorsLeft = 0
+            for p, role in pairs(players) do
+                if p:IsValid() and role == ROLE_SURVIVOR and spectators[p] == nil then
+                    survivorsLeft = survivorsLeft + 1
+                end
+            end
+
+            if survivorsLeft == 0 then
+                gameState = 'ended'
+
+                for p, role in pairs(players) do
+                    if p:IsValid() then
+                        Events.CallRemote('ClearRole', p)
+                        if role == ROLE_SLASHER then
+                            Chat.SendMessage(p, 'Victoire ! Tous les survivants sont morts.')
+                        else
+                            Chat.SendMessage(p, 'Défaite ! Le Slasher a gagné.')
+                        end
+                    end
+                end
+
+                if gameTimer then
+                    Timer.ClearInterval(gameTimer)
+                    gameTimer = nil
+                    for p, role in pairs(players) do
+                        if p:IsValid() then
+                            Events.CallRemote('UpdateTime', p, 0)
+                        end
+                    end
+                end
+
+                for p, role in pairs(players) do
+                    if p:IsValid() then
+                        ExitSpectatorMode(p)
+                        local char = p:GetControlledCharacter()
+                        if char then
+                            char:Destroy()
+                        end
+                    end
+                end
+
+                Timer.SetTimeout(function()
+                    local currentPlayers = Player.GetAll()
+                    if #currentPlayers >= 2 then
+                        spectators = {}
+                        ResetGame()
+                    else
+                        gameState = 'waiting'
+                        spectators = {}
+                    end
+                end, restartDelay * 1000)
+            else
+                Chat.BroadcastMessage('Survivants restants: ' .. survivorsLeft)
+            end
+        end
+        players[player] = nil
+        spectators[player] = nil
     end
 end)
 
@@ -277,7 +377,7 @@ Character.Subscribe("Death", function(character, last_damage_taken, last_bone_da
                         local currentPlayers = Player.GetAll()
                         if #currentPlayers >= 2 then
                             spectators = {}
-                            AssignRoles()
+                            ResetGame()
                         else
                             gameState = 'waiting'
                             spectators = {}
@@ -290,7 +390,15 @@ Character.Subscribe("Death", function(character, last_damage_taken, last_bone_da
 end)
 
 Console.RegisterCommand('start_slasher', function()
-    AssignRoles()
-end, 'Démarrer une partie de Slasher (admin uniquement)')
+    ResetGame(true)
+end, 'Démarrer une partie de Slasher (admin uniquement)', {})
+
+Console.RegisterCommand('end_slasher', function()
+    if gameState == 'playing' then
+        EndGame()
+    else
+        print('Aucune partie en cours.')
+    end
+end, 'Terminer la partie de Slasher en cours (admin uniquement)', {})
 
 print('Gamemode Slasher chargé côté serveur.')
