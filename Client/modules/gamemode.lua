@@ -48,9 +48,9 @@ canvas:Subscribe("Update", function()
         elseif currentStage == 2 then
             canvas:DrawText("Étape 2: Appelez la police", Vector2D(10, 35), FontType.Roboto, 18, Color.WHITE)
         elseif currentStage == 3 then
-            canvas:DrawText("Étape 3: Fuyez!", Vector2D(10, 35), FontType.Roboto, 18, Color.WHITE)
+            canvas:DrawText("Étape 3: Cachez-vous et attendez que la police arrive!", Vector2D(10, 35), FontType.Roboto, 18, Color.WHITE)
         elseif currentStage == 4 then
-            canvas:DrawText("Étape 4: Attendez la fin de la partie", Vector2D(10, 35), FontType.Roboto, 18, Color.WHITE)
+            canvas:DrawText("Étape 4: Fuyez!", Vector2D(10, 35), FontType.Roboto, 18, Color.WHITE)
         end
     end
     if timeLeft > 0 then
