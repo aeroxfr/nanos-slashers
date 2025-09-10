@@ -2,6 +2,7 @@ local myRole = nil
 local timeLeft = 0
 local isSpectator = false
 local battery = 100
+local currentStage = 0
 
 local canvas = Canvas(true, Color(0, 0, 0, 0), 1, true, true, 1920, 1080, Vector2D(0, 0))
 
@@ -21,6 +22,10 @@ Events.SubscribeRemote("SetSpectator", function(spectator)
     isSpectator = spectator
 end)
 
+Events.SubscribeRemote("UpdateStage", function(stage)
+    currentStage = stage
+end)
+
 Client.Subscribe("Tick", function()
     if Client.GetLocalPlayer() then
         local char = Client.GetLocalPlayer():GetControlledCharacter()
@@ -38,6 +43,15 @@ canvas:Subscribe("Update", function()
         canvas:DrawText("Vous êtes le Slasher", Vector2D(10, 10), FontType.Roboto, 24, Color.RED)
     elseif myRole == ROLE_SURVIVOR then
         canvas:DrawText("Vous êtes un Survivant", Vector2D(10, 10), FontType.Roboto, 24, Color.GREEN)
+        if currentStage == 1 then
+            canvas:DrawText("Étape 1: Ramassez et déposez les jerrycans", Vector2D(10, 35), FontType.Roboto, 18, Color.WHITE)
+        elseif currentStage == 2 then
+            canvas:DrawText("Étape 2: Appelez la police", Vector2D(10, 35), FontType.Roboto, 18, Color.WHITE)
+        elseif currentStage == 3 then
+            canvas:DrawText("Étape 3: Fuyez!", Vector2D(10, 35), FontType.Roboto, 18, Color.WHITE)
+        elseif currentStage == 4 then
+            canvas:DrawText("Étape 4: Attendez la fin de la partie", Vector2D(10, 35), FontType.Roboto, 18, Color.WHITE)
+        end
     end
     if timeLeft > 0 then
         local minutes = math.floor(timeLeft / 60)
