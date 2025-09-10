@@ -65,3 +65,4 @@ end)
 
 Sky.Spawn()
 Sky.SetTimeOfDay(2, 30)
+Sky.SetAnimateTimeOfDay(false)
