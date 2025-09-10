@@ -115,7 +115,6 @@ function Game:HandleObjectInteraction(character, object)
     local prop = object:GetMesh()
     if not prop then return end
 
-    -- Generator interaction
     if prop == "nanos-world::SM_LightGenerator_Base" and self.currentStage == 1 and self:CanPerformSurvivorAction(player) then
         if self.generatorJerrycans >= self.jerrycansPerGenerator then
             self.activatedGenerators = self.activatedGenerators + 1
@@ -144,6 +143,8 @@ function Game:HandleObjectInteraction(character, object)
                 end
                 Chat.BroadcastMessage("Le générateur a été démarré! Tuez les survivants avant qu'ils n'appellent la police.")
             end
+
+            return false
         else
             local jerrycansNeeded = self.jerrycansPerGenerator - self.generatorJerrycans
             Chat.SendMessage(player, "Il manque " .. jerrycansNeeded .. " jerrycans pour allumer ce générateur!")
@@ -179,25 +180,59 @@ function Game:HandleObjectInteraction(character, object)
                 end
             end
         end, self.policeDelay * 1000)
+        return false
     end
 end
 
 local gameInstance = Game:new()
 
 function Game:SpawnStageProps()
+    for _, prop in pairs(self.jerrycanProps) do
+        if prop and prop:IsValid() then
+            prop:Destroy()
+        end
+    end
+    self.jerrycanProps = {}
+
+    for _, prop in pairs(self.generatorProps) do
+        if prop and prop:IsValid() then
+            prop:Destroy()
+        end
+    end
+    self.generatorProps = {}
+
+    if self.generatorTrigger and self.generatorTrigger:IsValid() then
+        self.generatorTrigger:Destroy()
+    end
+    self.generatorTrigger = nil
+
+    if self.radioProp and self.radioProp:IsValid() then
+        self.radioProp:Destroy()
+    end
+    self.radioProp = nil
+
+    if self.exitTrigger and self.exitTrigger:IsValid() then
+        self.exitTrigger:Destroy()
+    end
+    self.exitTrigger = nil
+
     for i, loc in ipairs(jerrycanLocations) do
         self.jerrycanProps[i] = Prop(loc, Rotator(), "nanos-world::SM_TallGasCanister_01", CollisionType.Normal)
         self.jerrycanProps[i]:Subscribe("Grab", function(prop, character)
             local player = character:GetPlayer()
-            if self.currentStage >= 1 and player and player:IsA(Player) and self:CanPerformSurvivorAction(player) and not player:GetValue("has_jerrycan") then
+            if self.currentStage >= 1 and player and player:IsA(Player) and self:CanPerformSurvivorAction(player) and not player:GetValue("has_jerrycan") and not prop:GetValue("already_counted") then
                 self.foundJerrycans = self.foundJerrycans + 1
+                prop:SetValue("already_counted", true)
                 player:SetValue("has_jerrycan", true)
                 player:SetValue("jerrycan_prop", prop)
                 Chat.SendMessage(player, "Vous avez trouvé un jerrycan! (" .. self.foundJerrycans .. "/" .. self.requiredJerrycans .. ")")
                 
                 if self.foundJerrycans >= self.requiredJerrycans then
-                    Chat.BroadcastMessage("Tous les jerrycans ont été ramassés! Apportez-les au générateur.")
+                    Chat.BroadcastMessage("Tous les jerrycans ont été trouvés!")
                 end
+            elseif self.currentStage >= 1 and player and player:IsA(Player) and self:CanPerformSurvivorAction(player) and not player:GetValue("has_jerrycan") and prop:GetValue("already_counted") then
+                player:SetValue("has_jerrycan", true)
+                player:SetValue("jerrycan_prop", prop)
             end
         end)
 
@@ -206,7 +241,6 @@ function Game:SpawnStageProps()
             if self.currentStage >= 1 and player and player:IsA(Player) and self:CanPerformSurvivorAction(player) and player:GetValue("has_jerrycan") then
                 player:SetValue("has_jerrycan", false)
                 player:SetValue("jerrycan_prop", nil)
-                print("Jerrycan dropped by player: " .. tostring(player:GetName()))
             end
         end)
     end
@@ -215,7 +249,11 @@ function Game:SpawnStageProps()
     local generatorLocation = generatorLocations[randomGeneratorIndex]
     self.generatorProps[1] = Prop(generatorLocation, Rotator(), "nanos-world::SM_LightGenerator_Base", CollisionType.Normal)
     self.generatorProps[1]:SetGrabMode(GrabMode.Enabled)
+    self.generatorProps[1]:Subscribe("Grab", function(prop, character)
+        return false
+    end)
     self.generatorTrigger = Trigger(generatorLocation, Rotator(), Vector(200, 200, 100), TriggerType.Sphere, true, Color.BLUE)
+    self.generatorTrigger:AttachTo(self.generatorProps[1], AttachmentRule.SnapToTarget, "", -1, false)
     self.generatorTrigger:Subscribe("BeginOverlap", function(trigger, actor)
         if self.currentStage == 1 and actor:IsA(Prop) then
             local assetName = actor:GetMesh()
@@ -244,7 +282,9 @@ function Game:SpawnStageProps()
     end
 
     self.radioProp = Prop(radioLocation, Rotator(), "nanos-world::SM_MobilePhone", CollisionType.Normal)
-
+    self.radioProp:Subscribe("Grab", function(prop, character)
+        return false
+    end)
     self.exitTrigger = Trigger(exitZoneCenter, Rotator(), Vector(100, 100, 100), TriggerType.Sphere, true, Color.GREEN)
     self.exitTrigger:Subscribe("BeginOverlap", function(trigger, actor)
         if self.currentStage == 4 and actor:IsA(Character) then
@@ -295,7 +335,7 @@ function Game:ResetGame(force)
 
     -- Nettoyer les joueurs invalides
     for p, _ in pairs(self.players) do
-        if not p:IsValid() then
+        if p:IsValid() then
             self.players[p] = nil
         end
     end
@@ -309,7 +349,7 @@ function Game:ResetGame(force)
 
     -- Nettoie les characters existants sur la map
     for _, char in pairs(Character.GetAll()) do
-        if not char:IsValid() then
+        if char:IsValid() then
             char:Destroy()
         end
     end
@@ -425,6 +465,11 @@ function Game:StartGame()
             if (role == ROLE_SLASHER) then
                 char:SetInvulnerable(true)
                 char:SetTeam(2)
+                if( debugMode ) then
+                    char:SetCanGrabProps(true)
+                else
+                    char:SetCanGrabProps(false)
+                end
             else
                 char:SetTeam(1)
                 char:SetCanAim(false)
@@ -543,6 +588,7 @@ end
 Player.Subscribe('Spawn', function(player)
     if gameInstance.gameState == 'waiting' then
         Chat.SendMessage(player, 'Bienvenue dans Slasher ! Attendez que la partie commence.')
+        gameInstance:EnterSpectatorMode(player)
         if #Player.GetAll() >= 2 then
             gameInstance:ResetGame()
         end
@@ -692,7 +738,6 @@ Character.Subscribe("Death",
     end)
 
 Events.SubscribeRemote("ToggleFlashlight", function(player)
-    print('ToggleFlashlight called by player: ' .. tostring(player))
     local currentTime = os.time() * 1000
     if gameInstance.flashlightCooldown[player] and gameInstance.flashlightCooldown[player] > currentTime then
         return
@@ -705,7 +750,7 @@ Events.SubscribeRemote("ToggleFlashlight", function(player)
         return
     end
 
-    if gameInstance:CanPerformSurvivorAction(player) then
+    if gameInstance.players[player] == ROLE_SURVIVOR then
         Flashlight.Toggle(char)
     end
 end)

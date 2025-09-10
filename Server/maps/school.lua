@@ -2,11 +2,11 @@ local MapConfig = {}
 
 -- Spawn locations
 MapConfig.survivorSpawns = {
-    Vector(0, 0, 100),
-    Vector(100, 0, 100),
-    Vector(200, 0, 100),
-    Vector(300, 0, 100),
-    Vector(400, 0, 100)
+    Vector(0, 0, 0),
+    Vector(0, 0, 0),
+    Vector(0, 0, 0),
+    Vector(0, 0, 0),
+    Vector(0, 0, 0)
 }
 
 MapConfig.slasherSpawns = {
@@ -22,9 +22,9 @@ MapConfig.jerrycanLocations = {
 }
 
 MapConfig.generatorLocations = {
-    Vector(400, 0, 100),
-    Vector(500, 0, 100),
-    Vector(600, 0, 100)
+    Vector(400, 0, 300),
+    Vector(500, 0, 300),
+    Vector(600, 0, 300)
 }
 
 MapConfig.radioLocation = Vector(700, 0, 100)
