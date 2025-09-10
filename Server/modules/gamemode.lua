@@ -1,29 +1,38 @@
-local players = {} -- players[player] = role
-local gameState = 'waiting' -- waiting, playing, ended, restarting
-local gameTime = 60 -- Temps de partie en secondes
-local gameTimer = nil
-local restartDelay = 15 -- Délai avant relance en secondes
-local flashlightCooldown = {}
+local Game = {}
+
+Game.__index = Game
+
+function Game:new()
+    local instance = {
+        players = {}, -- players[player] = role
+        gameState = 'waiting', -- waiting, playing, ended, restarting
+        gameTime = 60, -- Temps de partie en secondes
+        gameTimer = nil,
+        restartDelay = 15, -- Délai avant relance en secondes
+        flashlightCooldown = {},
+        survivorSpawns = {
+            Vector(0, 0, 100),
+            Vector(100, 0, 100),
+            Vector(200, 0, 100),
+            Vector(300, 0, 100),
+            Vector(400, 0, 100)
+        },
+        slasherSpawns = {
+            Vector(500, 0, 100),
+            Vector(600, 0, 100)
+        },
+        spectators = {}
+    }
+    setmetatable(instance, self)
+    return instance
+end
+
+local gameInstance = Game:new()
 
 local Flashlight = Package.Require("modules/flashlight.lua")
 
-local survivorSpawns = {
-    Vector(0, 0, 100),
-    Vector(100, 0, 100),
-    Vector(200, 0, 100),
-    Vector(300, 0, 100),
-    Vector(400, 0, 100)
-}
-
-local slasherSpawns = {
-    Vector(500, 0, 100),
-    Vector(600, 0, 100)
-}
-
-local spectators = {}
-
-function EnterSpectatorMode(player)
-    spectators[player] = true
+function Game:EnterSpectatorMode(player)
+    self.spectators[player] = true
 
     Timer.SetTimeout(function()
         local char = player:GetControlledCharacter()
@@ -32,52 +41,51 @@ function EnterSpectatorMode(player)
         end
     end, 1000)
 
-    Chat.SendMessage(player, 'Vous êtes mort ! Vous êtes maintenant en mode spectateur.')
     Events.CallRemote('SetSpectator', player, true)
 end
 
-function ExitSpectatorMode(player)
-    spectators[player] = nil
+function Game:ExitSpectatorMode(player)
+    self.spectators[player] = nil
     Events.CallRemote('SetSpectator', player, false)
 end
 
-function ResetGame(force)
+function Game:ResetGame(force)
     if #Player.GetAll() < 2 and not force then
-        print('Pas assez de joueurs pour commencer.')
+        Console.Log('Pas assez de joueurs pour commencer.')
         return
     end
 
-    gameState = 'playing'
+    self.gameState = 'playing'
 
     -- Nettoyer les joueurs invalides
-    for p, _ in pairs(players) do
+    for p, _ in pairs(self.players) do
         if not p:IsValid() then
-            players[p] = nil
+            self.players[p] = nil
         end
     end
 
     -- Sortir tous les joueurs du mode spectateur
-    for p, _ in pairs(spectators) do
+    for p, _ in pairs(self.spectators) do
         if p:IsValid() then
-            ExitSpectatorMode(p)
+            self:ExitSpectatorMode(p)
         end
     end
-    spectators = {}
+    self.spectators = {}
 
     -- Assigner les rôles
-    AssignRoles(force)
+    self:AssignRoles(force)
 
     -- Reset game time
-    gameTime = 60
+    self.gameTime = 60
 
     -- Démarrer le timer de jeu
-    StartGame()
+    self:StartGame()
 
-    print('Partie commencée.')
+    Console.Log('Partie commencée.')
 end
 
 
-function AssignRoles(force)
+function Game:AssignRoles(force)
     local playerList = Player.GetAll()
     if #playerList < 2 and not force then
         return
@@ -90,13 +98,13 @@ function AssignRoles(force)
     end
 
     -- Assigner le rôle de Slasher au premier joueur de la liste mélangée 
-    players[playerList[1]] = ROLE_SLASHER
+    self.players[playerList[1]] = ROLE_SLASHER
     Chat.SendMessage(playerList[1], 'Vous êtes le Slasher ! Tuez les survivants.')
     Events.CallRemote('SetRole', playerList[1], ROLE_SLASHER)
 
     -- Assigner le rôle de Survivant aux autres joueurs
     for i = 2, #playerList do
-        players[playerList[i]] = ROLE_SURVIVOR
+        self.players[playerList[i]] = ROLE_SURVIVOR
         Chat.SendMessage(playerList[i], 'Vous êtes un Survivant ! Cachez-vous du Slasher.')
         Events.CallRemote('SetRole', playerList[i], ROLE_SURVIVOR)
     end
@@ -104,11 +112,11 @@ function AssignRoles(force)
     return true
 end
 
-function StartGame()
+function Game:StartGame()
     -- Spawn les joueurs
-    for player, role in pairs(players) do
+    for player, role in pairs(self.players) do
         if player:IsValid() then
-            local spawn = role == ROLE_SLASHER and slasherSpawns[math.random(#slasherSpawns)] or survivorSpawns[math.random(#survivorSpawns)]
+            local spawn = role == ROLE_SLASHER and self.slasherSpawns[math.random(#self.slasherSpawns)] or self.survivorSpawns[math.random(#self.survivorSpawns)]
             local char = Character(spawn, Rotator(0, 0, 0), role == ROLE_SLASHER and 'nanos-world::SK_PostApocalyptic' or 'nanos-world::SK_Male')
             player:SetCameraFOV(90)
             player:Possess(char)
@@ -129,30 +137,30 @@ function StartGame()
     Events.Call("RoundStart")
     
     -- Informer tous les joueurs du temps restant
-    for p, _ in pairs(players) do
-        Events.CallRemote('UpdateTime', p, gameTime)
+    for p, _ in pairs(self.players) do
+        Events.CallRemote('UpdateTime', p, self.gameTime)
     end
 
-    gameTimer = Timer.SetInterval(function()
-        gameTime = gameTime - 1
-        for p, _ in pairs(players) do
-            Events.CallRemote('UpdateTime', p, gameTime)
+    self.gameTimer = Timer.SetInterval(function()
+        self.gameTime = self.gameTime - 1
+        for p, _ in pairs(self.players) do
+            Events.CallRemote('UpdateTime', p, self.gameTime)
         end
-        if gameTime <= 0 then
-            EndGame()
+        if self.gameTime <= 0 then
+            self:EndGame()
         end
     end, 1000)
 end
 
-function EndGame()
-    gameState = 'ended'
+function Game:EndGame()
+    self.gameState = 'ended'
 
     Events.Call("RoundEnd")
 
-    if gameTimer then
-        Timer.ClearInterval(gameTimer)
-        gameTimer = nil
-        for p, _ in pairs(players) do
+    if self.gameTimer then
+        Timer.ClearInterval(self.gameTimer)
+        self.gameTimer = nil
+        for p, _ in pairs(self.players) do
             if p:IsValid() then
                 Events.CallRemote('UpdateTime', p, 0)
             end
@@ -161,8 +169,8 @@ function EndGame()
 
     -- Compter les survivants encore en vie
     local survivorsAlive = 0
-    for p, role in pairs(players) do
-        if p:IsValid() and role == ROLE_SURVIVOR and spectators[p] == nil then
+    for p, role in pairs(self.players) do
+        if p:IsValid() and role == ROLE_SURVIVOR and self.spectators[p] == nil then
             survivorsAlive = survivorsAlive + 1
         end
     end
@@ -170,7 +178,7 @@ function EndGame()
     -- Si le temps est écoulé et qu'il reste des survivants, ils gagnent
     if survivorsAlive > 0 then
         -- Victoire des survivants
-        for p, role in pairs(players) do
+        for p, role in pairs(self.players) do
             if p:IsValid() then
                 Events.CallRemote('ClearRole', p)
                 if role == ROLE_SURVIVOR then
@@ -182,7 +190,7 @@ function EndGame()
         end
     else
         -- Victoire du Slasher (tous les survivants morts)
-        for p, role in pairs(players) do
+        for p, role in pairs(self.players) do
             if p:IsValid() then
                 Events.CallRemote('ClearRole', p)
                 if role == ROLE_SLASHER then
@@ -194,68 +202,53 @@ function EndGame()
         end
     end
 
-    -- Nettoyer les personnages et spectateurs
-    for p, role in pairs(players) do
-        if p:IsValid() then
-            ExitSpectatorMode(p)
-            local char = p:GetControlledCharacter()
-            if char then
-                char:Destroy()
-            end
-        end
+    -- Nettoyer les rôles
+    self.players = {}
+
+    -- Mettre tous les joueurs en mode spectateur (ce qui détruira leurs personnages)
+    for _, p in pairs(Player.GetAll()) do
+        self:EnterSpectatorMode(p)
     end
 
-    -- Redémarrage automatique
+    -- Relancer automatiquement après un délai
     Timer.SetTimeout(function()
-        local currentPlayers = Player.GetAll()
-        if #currentPlayers >= 2 then
-            spectators = {}
-            ResetGame()
-        else
-            gameState = 'waiting'
-            spectators = {}
-            for p, role in pairs(players) do
-                if p:IsValid() then
-                    Chat.SendMessage(p, 'Pas assez de joueurs pour relancer.')
-                end
-            end
-        end
-    end, restartDelay * 1000)
+        self:ResetGame()
+    end, self.restartDelay * 1000)
 end
 
-function CheckRole(player)
-    return players[player]
+function Game:CheckRole(player)
+    return self.players[player]
 end
 
 Player.Subscribe('Spawn', function(player)
-    if gameState == 'waiting' then
+    if gameInstance.gameState == 'waiting' then
         Chat.SendMessage(player, 'Bienvenue dans Slasher ! Attendez que la partie commence.')
         if #Player.GetAll() >= 2 then
-            ResetGame()
+            gameInstance:ResetGame()
         end
-    elseif gameState == 'playing' then
+    elseif gameInstance.gameState == 'playing' then
         Chat.SendMessage(player, 'La partie est en cours. Vous êtes spectateur.')
-        EnterSpectatorMode(player)
-    elseif gameState == 'ended' then
+        gameInstance:EnterSpectatorMode(player)
+    elseif gameInstance.gameState == 'ended' then
         Chat.SendMessage(player, 'La partie est terminée. Attendez le redémarrage.')
-        EnterSpectatorMode(player)
+        gameInstance:EnterSpectatorMode(player)
     end
 end)
 
 Player.Subscribe('Destroy', function(player)
-    if gameState == 'playing' and players[player] then
-        if players[player] == ROLE_SURVIVOR then
+    if gameInstance.gameState == 'playing' and gameInstance.players[player] then
+        if gameInstance.players[player] == ROLE_SURVIVOR then
             local survivorsLeft = 0
-            for p, role in pairs(players) do
-                if p:IsValid() and role == ROLE_SURVIVOR and spectators[p] == nil then
+            for p, role in pairs(gameInstance.players) do
+                if p:IsValid() and role == ROLE_SURVIVOR and gameInstance.spectators[p] == nil then
                     survivorsLeft = survivorsLeft + 1
                 end
             end
 
             if survivorsLeft == 0 then
-                gameState = 'ended'
+                gameInstance.gameState = 'ended'
 
-                for p, role in pairs(players) do
+                for p, role in pairs(gameInstance.players) do
                     if p:IsValid() then
                         Events.CallRemote('ClearRole', p)
                         if role == ROLE_SLASHER then
@@ -266,19 +259,19 @@ Player.Subscribe('Destroy', function(player)
                     end
                 end
 
-                if gameTimer then
-                    Timer.ClearInterval(gameTimer)
-                    gameTimer = nil
-                    for p, role in pairs(players) do
+                if gameInstance.gameTimer then
+                    Timer.ClearInterval(gameInstance.gameTimer)
+                    gameInstance.gameTimer = nil
+                    for p, role in pairs(gameInstance.players) do
                         if p:IsValid() then
                             Events.CallRemote('UpdateTime', p, 0)
                         end
                     end
                 end
 
-                for p, role in pairs(players) do
+                for p, role in pairs(gameInstance.players) do
                     if p:IsValid() then
-                        ExitSpectatorMode(p)
+                        gameInstance:ExitSpectatorMode(p)
                         local char = p:GetControlledCharacter()
                         if char then
                             char:Destroy()
@@ -289,28 +282,27 @@ Player.Subscribe('Destroy', function(player)
                 Timer.SetTimeout(function()
                     local currentPlayers = Player.GetAll()
                     if #currentPlayers >= 2 then
-                        spectators = {}
-                        ResetGame()
+                        gameInstance.spectators = {}
+                        gameInstance:ResetGame()
                     else
-                        gameState = 'waiting'
-                        spectators = {}
+                        gameInstance.gameState = 'waiting'
+                        gameInstance.spectators = {}
                     end
-                end, restartDelay * 1000)
+                end, gameInstance.restartDelay * 1000)
             else
                 Chat.BroadcastMessage('Survivants restants: ' .. survivorsLeft)
             end
         end
-        players[player] = nil
-        spectators[player] = nil
+        gameInstance.players[player] = nil
     end
 end)
 
 Character.Subscribe("Death", function(character, last_damage_taken, last_bone_damaged, damage_type_reason, hit_from_direction, killer, causer)
-    if gameState == 'playing' then
+    if gameInstance.gameState == 'playing' then
         local player = nil
         local killerPlayer = nil
 
-        for p, _ in pairs(players) do
+        for p, _ in pairs(gameInstance.players) do
             if p:IsValid() then
                 local controlledChar = p:GetControlledCharacter()
                 if controlledChar and controlledChar == character then
@@ -326,20 +318,20 @@ Character.Subscribe("Death", function(character, last_damage_taken, last_bone_da
             end
         end
 
-        if player and players[player] == ROLE_SURVIVOR and killerPlayer and players[killerPlayer] == ROLE_SLASHER then
+        if player and gameInstance.players[player] == ROLE_SURVIVOR and killerPlayer and gameInstance.players[killerPlayer] == ROLE_SLASHER then
             Chat.SendMessage(player, 'Vous avez été tué par le Slasher !')
             Chat.SendMessage(killerPlayer, 'Vous avez tué un survivant !')
 
-            EnterSpectatorMode(player)
+            gameInstance:EnterSpectatorMode(player)
 
             Timer.SetTimeout(function()
                 local survivorsLeft = 0
                 local totalPlayers = 0
 
-                for p, role in pairs(players) do
+                for p, role in pairs(gameInstance.players) do
                     if p:IsValid() then
                         totalPlayers = totalPlayers + 1
-                        if role == ROLE_SURVIVOR and spectators[p] == nil then
+                        if role == ROLE_SURVIVOR and gameInstance.spectators[p] == nil then
                             survivorsLeft = survivorsLeft + 1
                         end
                     end
@@ -348,33 +340,33 @@ Character.Subscribe("Death", function(character, last_damage_taken, last_bone_da
                 Chat.BroadcastMessage('Survivants restants: ' .. survivorsLeft)
 
                 if survivorsLeft == 0 then
-                    gameState = 'ended'
+                    gameInstance.gameState = 'ended'
 
                     Chat.SendMessage(killerPlayer, 'Victoire ! Tous les survivants sont morts.')
-                    for p, role in pairs(players) do
+                    for p, role in pairs(gameInstance.players) do
                         if p:IsValid() and role ~= ROLE_SLASHER then
                             Chat.SendMessage(p, 'Défaite ! Le Slasher a gagné.')
                         end
                     end
 
-                    for p, role in pairs(players) do
+                    for p, role in pairs(gameInstance.players) do
                         if p:IsValid() then
                             Events.CallRemote('ClearRole', p)
-                            ExitSpectatorMode(p)
+                            gameInstance:ExitSpectatorMode(p)
                         end
                     end
 
-                    if gameTimer then
-                        Timer.ClearInterval(gameTimer)
-                        gameTimer = nil
-                        for p, role in pairs(players) do
+                    if gameInstance.gameTimer then
+                        Timer.ClearInterval(gameInstance.gameTimer)
+                        gameInstance.gameTimer = nil
+                        for p, role in pairs(gameInstance.players) do
                             if p:IsValid() then
                                 Events.CallRemote('UpdateTime', p, 0)
                             end
                         end
                     end
 
-                    for p, role in pairs(players) do
+                    for p, role in pairs(gameInstance.players) do
                         if p:IsValid() then
                             local char = p:GetControlledCharacter()
                             if char then
@@ -386,13 +378,13 @@ Character.Subscribe("Death", function(character, last_damage_taken, last_bone_da
                     Timer.SetTimeout(function()
                         local currentPlayers = Player.GetAll()
                         if #currentPlayers >= 2 then
-                            spectators = {}
-                            ResetGame()
+                            gameInstance.spectators = {}
+                            gameInstance:ResetGame()
                         else
-                            gameState = 'waiting'
-                            spectators = {}
+                            gameInstance.gameState = 'waiting'
+                            gameInstance.spectators = {}
                         end
-                    end, restartDelay * 1000)
+                    end, gameInstance.restartDelay * 1000)
                 end
             end, 500)
         end
@@ -402,30 +394,32 @@ end)
 Events.SubscribeRemote("ToggleFlashlight", function(player)
     print('ToggleFlashlight called by player: ' .. tostring(player))
     local currentTime = os.time() * 1000
-    if flashlightCooldown[player] and flashlightCooldown[player] > currentTime then
+    if gameInstance.flashlightCooldown[player] and gameInstance.flashlightCooldown[player] > currentTime then
         return
     end
 
-    flashlightCooldown[player] = currentTime + 350
+    gameInstance.flashlightCooldown[player] = currentTime + 350
 
     local char = player:GetControlledCharacter()
     if not char or not char:IsValid() or char:GetHealth() <= 0 then
         return
     end
 
-    if players[player] == ROLE_SURVIVOR then
+    if gameInstance.players[player] == ROLE_SURVIVOR then
         Flashlight.Toggle(char)
     end
 end)
 
 Console.RegisterCommand('start_slasher', function()
-    ResetGame(true)
+    gameInstance:ResetGame(true)
 end, 'Démarrer une partie de Slasher (admin uniquement)', {})
 
 Console.RegisterCommand('end_slasher', function()
-    if gameState == 'playing' then
-        EndGame()
+    if gameInstance.gameState == 'playing' then
+        gameInstance:EndGame()
     else
-        print('Aucune partie en cours.')
+        Console.Log('Aucune partie en cours.')
     end
 end, 'Terminer la partie de Slasher en cours (admin uniquement)', {})
+
+return Game, gameInstance
